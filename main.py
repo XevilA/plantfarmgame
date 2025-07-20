@@ -1,23 +1,32 @@
-
-
-import pygame
-import sys
-import json
 import os
-from enum import Enum
-from datetime import datetime
-import math
+import json
 import random
+import sys
+import pygame
+import math
+import time
+from State import GameState
+from Weather import Weather
+from particle import Particle
+from crop import Crop
+from CPT import CropType
+from music import SoundManager
+from datetime import datetime
+from enum import Enum
+from Plot import FarmPlot
+from config import TILE_SIZE
+from image_loader import ImageLoader
 
 
 pygame.init()
 pygame.mixer.init()
 
 
+
 WINDOW_WIDTH = 1280
 WINDOW_HEIGHT = 800
 FPS = 60
-TILE_SIZE = 120
+
 SAVE_FILE = "farm_save.json"
 
 
@@ -41,520 +50,13 @@ GRAY = (128, 128, 128)
 BROWN = (101, 67, 33)
 YELLOW = (255, 255, 0)
 GREEN = (0, 255, 0)
+LIGHT_GRAY = (200, 200, 200)
+DARK_GRAY = (100, 100, 100)
 
-class GameState(Enum):
-    START_SCREEN = 0
-    MAIN = 1
-    SHOP = 2
-    INVENTORY = 3
-    PLANTING = 4
-    SETTINGS = 5
 
-class Weather(Enum):
-    SUNNY = 1
-    RAINY = 2
-    CLOUDY = 3
 
-class CropType:
-    def __init__(self, name, growth_stages, sell_price, seed_price, growth_time):
-        self.name = name
-        self.growth_stages = growth_stages
-        self.sell_price = sell_price
-        self.seed_price = seed_price
-        self.growth_time = growth_time
+###################################################################################################
 
-class Crop:
-    def __init__(self, crop_type):
-        self.type = crop_type
-        self.planted_time = None
-        self.growth_stage = 0
-        self.watered = False
-        self.fertilized = False
-
-    def plant(self):
-        self.planted_time = pygame.time.get_ticks()
-
-    def update(self):
-        if self.planted_time:
-            elapsed = pygame.time.get_ticks() - self.planted_time
-            growth_multiplier = 1.5 if self.fertilized else 1.0
-            if self.watered:
-                growth_multiplier *= 1.2
-
-            stage_time = (self.type.growth_time / self.type.growth_stages) / growth_multiplier
-            self.growth_stage = min(int(elapsed / stage_time), self.type.growth_stages - 1)
-
-    def is_ready(self):
-        return self.growth_stage >= self.type.growth_stages - 1
-
-class FarmPlot:
-    def __init__(self, x, y):
-        self.rect = pygame.Rect(x, y, TILE_SIZE, TILE_SIZE)
-        self.crop = None
-        self.is_tilled = False
-        self.moisture = 0
-        self.has_fence = False
-
-    def till(self):
-        self.is_tilled = True
-
-    def water(self):
-        self.moisture = 100
-        if self.crop:
-            self.crop.watered = True
-
-    def fertilize(self):
-        if self.crop:
-            self.crop.fertilized = True
-
-    def plant(self, crop):
-        if self.is_tilled and not self.crop:
-            self.crop = crop
-            self.crop.plant()
-            return True
-        return False
-
-    def harvest(self):
-        if self.crop and self.crop.is_ready():
-            harvested = self.crop
-            self.crop = None
-            return harvested
-        return None
-
-    def update(self):
-        if self.moisture > 0:
-            self.moisture = max(0, self.moisture - 0.05)
-        if self.crop:
-            self.crop.update()
-
-class Particle:
-    def __init__(self, x, y, color, velocity, life=30, size=3):
-        self.x = x
-        self.y = y
-        self.vx = velocity[0]
-        self.vy = velocity[1]
-        self.color = color
-        self.size = size
-        self.life = life
-        self.max_life = life
-
-    def update(self):
-        self.x += self.vx
-        self.y += self.vy
-        self.vy += 0.3  # Gravity
-        self.life -= 1
-
-    def draw(self, screen):
-        if self.life > 0:
-            alpha = self.life / self.max_life
-            pygame.draw.circle(screen, self.color, (int(self.x), int(self.y)),
-                             int(self.size * alpha))
-
-class ImageLoader:
-    """Load and create game graphics"""
-    def __init__(self):
-        self.images = {}
-        self.create_assets()
-
-    def create_assets(self):
-        """Create all game assets programmatically"""
-        # Cat mascot
-        self.images['cat'] = self.create_cat_mascot()
-
-        # Coins
-        self.images['coin'] = self.create_coin()
-
-        # Shop
-        self.images['shop'] = self.create_shop_icon()
-        self.images['market'] = self.create_market_stall()
-
-        # Bag
-        self.images['bag'] = self.create_bag()
-
-        # Farm elements
-        self.images['plot'] = self.create_plot()
-        self.images['seedling'] = self.create_seedling()
-
-        # Fruits
-        self.images['durian'] = self.create_durian()
-        self.images['mangosteen'] = self.create_mangosteen()
-
-        # Seeds
-        self.images['durian_seed'] = self.create_seed_packet('durian')
-        self.images['mangosteen_seed'] = self.create_seed_packet('mangosteen')
-
-        # Tools
-        self.images['water_can'] = self.create_water_can()
-        self.images['fertilizer'] = self.create_fertilizer()
-
-    def create_cat_mascot(self):
-        """Create a cute cat mascot"""
-        size = (200, 200)
-        surface = pygame.Surface(size, pygame.SRCALPHA)
-
-        # Body
-        pygame.draw.ellipse(surface, WHITE, (50, 100, 100, 80))
-        pygame.draw.ellipse(surface, BLACK, (50, 100, 100, 80), 3)
-
-        # Head
-        pygame.draw.circle(surface, WHITE, (100, 80), 50)
-        pygame.draw.circle(surface, BLACK, (100, 80), 50, 3)
-
-        # Ears
-        pygame.draw.polygon(surface, WHITE, [(60, 50), (50, 20), (80, 40)])
-        pygame.draw.polygon(surface, BLACK, [(60, 50), (50, 20), (80, 40)], 3)
-        pygame.draw.polygon(surface, WHITE, [(120, 40), (150, 20), (140, 50)])
-        pygame.draw.polygon(surface, BLACK, [(120, 40), (150, 20), (140, 50)], 3)
-
-        # Eyes
-        pygame.draw.circle(surface, BLACK, (80, 75), 8)
-        pygame.draw.circle(surface, BLACK, (120, 75), 8)
-        pygame.draw.circle(surface, WHITE, (82, 73), 3)
-        pygame.draw.circle(surface, WHITE, (122, 73), 3)
-
-        # Nose
-        pygame.draw.polygon(surface, PINK, [(100, 85), (95, 95), (105, 95)])
-
-        # Mouth
-        pygame.draw.arc(surface, BLACK, (85, 85, 15, 15), 0, math.pi, 2)
-        pygame.draw.arc(surface, BLACK, (100, 85, 15, 15), 0, math.pi, 2)
-
-        # Tail
-        pygame.draw.arc(surface, WHITE, (140, 120, 60, 60), -math.pi/4, math.pi/2, 20)
-        pygame.draw.arc(surface, BLACK, (140, 120, 60, 60), -math.pi/4, math.pi/2, 3)
-
-        return surface
-
-    def create_coin(self):
-        """Create a golden coin"""
-        size = (64, 64)
-        surface = pygame.Surface(size, pygame.SRCALPHA)
-
-        # Outer circle
-        pygame.draw.circle(surface, GOLDEN, (32, 32), 30)
-        pygame.draw.circle(surface, (218, 165, 32), (32, 32), 30, 3)
-
-        # Inner circle
-        pygame.draw.circle(surface, (218, 165, 32), (32, 32), 24, 2)
-
-        # Star
-        star_points = []
-        for i in range(10):
-            angle = i * math.pi / 5
-            if i % 2 == 0:
-                r = 15
-            else:
-                r = 8
-            x = 32 + r * math.cos(angle - math.pi/2)
-            y = 32 + r * math.sin(angle - math.pi/2)
-            star_points.append((x, y))
-        pygame.draw.polygon(surface, (218, 165, 32), star_points)
-
-        return surface
-
-    def create_shop_icon(self):
-        """Create shop icon"""
-        size = (64, 64)
-        surface = pygame.Surface(size, pygame.SRCALPHA)
-
-        # Shop building
-        pygame.draw.rect(surface, ORANGE, (10, 20, 44, 40))
-        pygame.draw.rect(surface, BLACK, (10, 20, 44, 40), 2)
-
-        # Roof
-        pygame.draw.polygon(surface, RED, [(5, 20), (32, 5), (59, 20)])
-        pygame.draw.polygon(surface, BLACK, [(5, 20), (32, 5), (59, 20)], 2)
-
-        # Door
-        pygame.draw.rect(surface, BROWN, (24, 40, 16, 20))
-        pygame.draw.rect(surface, BLACK, (24, 40, 16, 20), 2)
-
-        # Window
-        pygame.draw.rect(surface, SKY_BLUE, (15, 28, 12, 10))
-        pygame.draw.rect(surface, BLACK, (15, 28, 12, 10), 2)
-        pygame.draw.rect(surface, SKY_BLUE, (37, 28, 12, 10))
-        pygame.draw.rect(surface, BLACK, (37, 28, 12, 10), 2)
-
-        return surface
-
-    def create_market_stall(self):
-        """Create market stall like in the image"""
-        size = (200, 200)
-        surface = pygame.Surface(size, pygame.SRCALPHA)
-
-        # Wooden posts
-        pygame.draw.rect(surface, BROWN, (30, 60, 20, 120))
-        pygame.draw.rect(surface, BROWN, (150, 60, 20, 120))
-        pygame.draw.rect(surface, BLACK, (30, 60, 20, 120), 2)
-        pygame.draw.rect(surface, BLACK, (150, 60, 20, 120), 2)
-
-        # Counter
-        pygame.draw.rect(surface, UI_BROWN, (20, 120, 160, 60))
-        pygame.draw.rect(surface, BLACK, (20, 120, 160, 60), 3)
-
-        # Awning
-        for i in range(4):
-            x = 20 + i * 40
-            color = YELLOW if i % 2 == 0 else WHITE
-            pygame.draw.arc(surface, color, (x, 20, 40, 80), 0, math.pi, 30)
-            pygame.draw.arc(surface, BLACK, (x, 20, 40, 80), 0, math.pi, 3)
-
-        # Sign
-        pygame.draw.rect(surface, UI_BROWN, (60, 30, 80, 40))
-        pygame.draw.rect(surface, BLACK, (60, 30, 80, 40), 2)
-
-        return surface
-
-    def create_bag(self):
-        """Create bag icon like in the image"""
-        size = (80, 80)
-        surface = pygame.Surface(size, pygame.SRCALPHA)
-
-        # Bag body
-        pygame.draw.ellipse(surface, BROWN, (10, 30, 60, 45))
-        pygame.draw.ellipse(surface, (139, 69, 19), (10, 30, 60, 45), 3)
-
-        # Handle
-        pygame.draw.arc(surface, BROWN, (20, 15, 40, 30), 0, math.pi, 8)
-        pygame.draw.arc(surface, (139, 69, 19), (20, 15, 40, 30), 0, math.pi, 3)
-
-        # Flap
-        pygame.draw.arc(surface, (160, 82, 45), (10, 25, 60, 30), 0, math.pi, 0)
-        pygame.draw.arc(surface, (160, 82, 45), (10, 25, 60, 30), 0, math.pi, 20)
-        pygame.draw.arc(surface, (139, 69, 19), (10, 25, 60, 30), 0, math.pi, 3)
-
-        # Buckle
-        pygame.draw.rect(surface, GOLDEN, (35, 35, 10, 8))
-        pygame.draw.rect(surface, BLACK, (35, 35, 10, 8), 1)
-
-        return surface
-
-    def create_plot(self):
-        """Create farm plot"""
-        size = (TILE_SIZE, TILE_SIZE)
-        surface = pygame.Surface(size, pygame.SRCALPHA)
-
-        # Wooden fence border
-        fence_color = (160, 82, 45)
-        # Posts
-        for i in range(5):
-            x = i * 30
-            pygame.draw.rect(surface, fence_color, (x, 0, 8, 20))
-            pygame.draw.rect(surface, fence_color, (x, 100, 8, 20))
-            pygame.draw.rect(surface, fence_color, (0, x, 20, 8))
-            pygame.draw.rect(surface, fence_color, (100, x, 20, 8))
-
-        # Soil
-        pygame.draw.rect(surface, SOIL_BROWN, (20, 20, 80, 80))
-
-        # Soil texture
-        for i in range(3):
-            for j in range(3):
-                x = 30 + i * 25
-                y = 30 + j * 25
-                pygame.draw.circle(surface, LIGHT_BROWN, (x, y), 3)
-
-        return surface
-
-    def create_seedling(self):
-        """Create seedling sprite"""
-        size = (60, 60)
-        surface = pygame.Surface(size, pygame.SRCALPHA)
-
-        # Stem
-        pygame.draw.rect(surface, DARK_GREEN, (28, 30, 4, 20))
-
-        # Leaves
-        pygame.draw.ellipse(surface, LIGHT_GREEN, (15, 15, 20, 25))
-        pygame.draw.ellipse(surface, LIGHT_GREEN, (25, 15, 20, 25))
-        pygame.draw.ellipse(surface, DARK_GREEN, (15, 15, 20, 25), 2)
-        pygame.draw.ellipse(surface, DARK_GREEN, (25, 15, 20, 25), 2)
-
-        # Soil mound
-        pygame.draw.ellipse(surface, SOIL_BROWN, (10, 45, 40, 15))
-
-        return surface
-
-    def create_durian(self):
-        """Create durian sprite"""
-        size = (80, 80)
-        surface = pygame.Surface(size, pygame.SRCALPHA)
-
-        # Main body
-        pygame.draw.ellipse(surface, (126, 200, 80), (10, 15, 60, 55))
-
-        # Spikes
-        for i in range(8):
-            for j in range(6):
-                x = 15 + i * 8
-                y = 20 + j * 8
-                if (i + j) % 2 == 0:
-                    pygame.draw.polygon(surface, DARK_GREEN,
-                                      [(x, y), (x-3, y+5), (x+3, y+5)])
-
-        # Stem
-        pygame.draw.rect(surface, BROWN, (38, 10, 4, 10))
-
-        # Outline
-        pygame.draw.ellipse(surface, BLACK, (10, 15, 60, 55), 2)
-
-        return surface
-
-    def create_mangosteen(self):
-        """Create mangosteen sprite"""
-        size = (70, 70)
-        surface = pygame.Surface(size, pygame.SRCALPHA)
-
-        # Main body
-        pygame.draw.circle(surface, PURPLE, (35, 40), 28)
-        pygame.draw.circle(surface, (128, 0, 128), (35, 40), 28, 3)
-
-        # Top crown
-        pygame.draw.circle(surface, DARK_GREEN, (35, 15), 12)
-        for i in range(6):
-            angle = i * math.pi / 3
-            x = 35 + 10 * math.cos(angle)
-            y = 15 + 10 * math.sin(angle)
-            pygame.draw.circle(surface, LIGHT_GREEN, (int(x), int(y)), 5)
-
-        # Highlight
-        pygame.draw.ellipse(surface, (200, 150, 255), (25, 25, 15, 20))
-
-        return surface
-
-    def create_seed_packet(self, crop_type):
-        """Create seed packet"""
-        size = (60, 80)
-        surface = pygame.Surface(size, pygame.SRCALPHA)
-
-        # Packet
-        pygame.draw.rect(surface, CREAM, (5, 5, 50, 70))
-        pygame.draw.rect(surface, UI_DARK, (5, 5, 50, 70), 2)
-
-        # Top tear line
-        for i in range(5):
-            pygame.draw.line(surface, BLACK, (10 + i*10, 10), (15 + i*10, 10), 1)
-
-        # Label
-        pygame.draw.rect(surface, WHITE, (10, 20, 40, 30))
-        pygame.draw.rect(surface, BLACK, (10, 20, 40, 30), 1)
-
-        # Crop image
-        if crop_type == 'durian':
-            pygame.draw.circle(surface, GREEN, (30, 35), 12)
-            # Mini spikes
-            for angle in range(0, 360, 60):
-                x = 30 + 10 * math.cos(math.radians(angle))
-                y = 35 + 10 * math.sin(math.radians(angle))
-                pygame.draw.circle(surface, DARK_GREEN, (int(x), int(y)), 2)
-        else:
-            pygame.draw.circle(surface, PURPLE, (30, 35), 10)
-            pygame.draw.circle(surface, DARK_GREEN, (30, 25), 5)
-
-        # Seeds at bottom
-        for i in range(3):
-            pygame.draw.ellipse(surface, BROWN, (15 + i*10, 60, 6, 8))
-
-        return surface
-
-    def create_water_can(self):
-        """Create watering can"""
-        size = (80, 80)
-        surface = pygame.Surface(size, pygame.SRCALPHA)
-
-        # Can body
-        pygame.draw.rect(surface, SKY_BLUE, (20, 30, 40, 35))
-        pygame.draw.rect(surface, (0, 100, 200), (20, 30, 40, 35), 3)
-
-        # Spout
-        pygame.draw.polygon(surface, SKY_BLUE,
-                          [(60, 35), (70, 25), (75, 30), (60, 45)])
-        pygame.draw.polygon(surface, (0, 100, 200),
-                          [(60, 35), (70, 25), (75, 30), (60, 45)], 2)
-
-        # Handle
-        pygame.draw.arc(surface, SKY_BLUE, (30, 20, 20, 30), math.pi/2, 3*math.pi/2, 5)
-        pygame.draw.arc(surface, (0, 100, 200), (30, 20, 20, 30), math.pi/2, 3*math.pi/2, 2)
-
-        # Water drops
-        for i in range(3):
-            pygame.draw.circle(surface, (173, 216, 230), (70 + i*3, 35 + i*5), 2)
-
-        return surface
-
-    def create_fertilizer(self):
-        """Create fertilizer bag"""
-        size = (60, 70)
-        surface = pygame.Surface(size, pygame.SRCALPHA)
-
-        # Bag
-        pygame.draw.rect(surface, BROWN, (10, 15, 40, 50))
-        pygame.draw.rect(surface, (101, 67, 33), (10, 15, 40, 50), 2)
-
-        # Label
-        pygame.draw.rect(surface, WHITE, (15, 25, 30, 20))
-        pygame.draw.rect(surface, BLACK, (15, 25, 30, 20), 1)
-
-        # Plant symbol
-        pygame.draw.rect(surface, GREEN, (28, 32, 4, 8))
-        pygame.draw.circle(surface, GREEN, (25, 30), 5)
-        pygame.draw.circle(surface, GREEN, (35, 30), 5)
-
-        # Top opening
-        pygame.draw.polygon(surface, CREAM, [(10, 15), (20, 5), (40, 5), (50, 15)])
-        pygame.draw.polygon(surface, (101, 67, 33), [(10, 15), (20, 5), (40, 5), (50, 15)], 2)
-
-        return surface
-
-    def get(self, name, size=None):
-        img = self.images.get(name, self.create_placeholder(name))
-        if size:
-            return pygame.transform.scale(img, size)
-        return img
-
-    def create_placeholder(self, name):
-        """Create placeholder if image missing"""
-        size = (64, 64)
-        surface = pygame.Surface(size, pygame.SRCALPHA)
-        pygame.draw.rect(surface, PINK, (0, 0, size[0], size[1]), border_radius=10)
-        pygame.draw.rect(surface, BLACK, (0, 0, size[0], size[1]), 2, border_radius=10)
-        return surface
-
-class SoundManager:
-    """Manage game sounds"""
-    def __init__(self):
-        self.sounds = {}
-        self.music_volume = 0.5
-        self.sfx_volume = 0.7
-        self.sfx_enabled = True
-        self.create_sounds()
-
-    def create_sounds(self):
-        """Create simple sound effects"""
-        # Since we can't load actual files, we'll use pygame's sound generation
-        # In a real game, you would load actual sound files here
-        pass
-
-    def set_music_volume(self, volume):
-        """Set background music volume (0.0 to 1.0)"""
-        self.music_volume = max(0.0, min(1.0, volume))
-        pygame.mixer.music.set_volume(self.music_volume)
-
-    def set_sfx_volume(self, volume):
-        """Set sound effects volume (0.0 to 1.0)"""
-        self.sfx_volume = max(0.0, min(1.0, volume))
-
-    def toggle_music(self):
-        """Toggle music on/off"""
-        if pygame.mixer.music.get_busy():
-            pygame.mixer.music.pause()
-        else:
-            pygame.mixer.music.unpause()
-
-    def play(self, sound_name):
-        """Play a sound effect"""
-        # In a real implementation, this would play the actual sound
-        pass
 
 class FarmGame:
     def __init__(self):
@@ -582,40 +84,58 @@ class FarmGame:
         self.day = 1
         self.weather = Weather.SUNNY
 
-        # Enhanced inventory
+        # Enhanced inventory with categories
         self.inventory = {
-            "durian": 0,
-            "mangosteen": 0,
-            "durian_seeds": 10,
-            "mangosteen_seeds": 10,
-            "fertilizer": 5,
-            "water_can": 1
+            "crops": {
+                "durian": 0,
+                "mangosteen": 0
+            },
+            "seeds": {
+                "durian_seeds": 10,
+                "mangosteen_seeds": 10
+            },
+            "tools": {
+                "fertilizer": 10,
+                "water_can": 10
+            }
         }
+
+        # Inventory UI state
+        self.inventory_tab = "crops"  # crops, seeds, tools
+        self.selected_item = None
+        self.item_hover = None
+        
+        # Inventory selling
+        self.sell_mode = False
+        self.sell_quantity = 1
 
         # Crop types
         self.crop_types = {
             "durian": CropType("Durian", 3, 100, 30, 10000),
             "mangosteen": CropType("Mangosteen", 3, 60, 20, 7000)
+            #(ชื่อพืช, ระยะการเติบโต, ราคาซื้อ, XP ที่ได้, ราคาขาย)
         }
 
         # Create farm plots (4x4 grid)
         self.plots = []
-        start_x = 320
+        start_x = 320#ตำแหน่งบนจอของ มุมซ้ายบนของแปลงแรก
         start_y = 200
-        spacing = TILE_SIZE + 30
-        for i in range(4):
+        spacing = TILE_SIZE + 30#ระยะห่างระหว่างแต่ละแปลง  = ขนาดแปลง (TILE_SIZE) + ช่องว่าง 30 px
+        for i in range(4):#loopแปลง
             for j in range(4):
                 x = start_x + j * spacing
                 y = start_y + i * spacing
                 self.plots.append(FarmPlot(x, y))
 
-        # Particles
+        self.sounds.play("click")
+
+        # Particlesist ว่าง เพื่อเก็บวัตถุ Particle ทั้งหมดในเกม ณ ขณะนั้น
         self.particles = []
 
         # Selected plot for planting
         self.selected_plot = None
 
-        # Decorative elements
+        # Decorative elements เมฆสุดเท่ที่ฉาก
         self.clouds = []
         for i in range(5):
             self.clouds.append({
@@ -632,20 +152,20 @@ class FarmGame:
         self.music_enabled = True
         self.sfx_enabled = True
 
-        # Settings screen elements
-        self.music_slider_rect = pygame.Rect(500, 250, 300, 20)
-        self.sfx_slider_rect = pygame.Rect(500, 350, 300, 20)
+        # Settings screen elements วาดหน้าตั้งค่าตรงเพลง
+        self.music_slider_rect = pygame.Rect(570, 250, 230, 20)
+        self.sfx_slider_rect = pygame.Rect(570, 350, 230, 20)
         self.music_slider_pos = self.music_slider_rect.x + int(self.sounds.music_volume * 300)
         self.sfx_slider_pos = self.sfx_slider_rect.x + int(self.sounds.sfx_volume * 300)
         self.dragging_music = False
         self.dragging_sfx = False
-        self.music_toggle_rect = pygame.Rect(850, 240, 100, 40)
-        self.sfx_toggle_rect = pygame.Rect(850, 340, 100, 40)
+        self.music_toggle_rect = pygame.Rect(890, 240, 100, 40)
+        self.sfx_toggle_rect = pygame.Rect(890, 340, 100, 40)
 
-        # UI Elements
+        # UI Elementsปุ่ม
         self.create_ui_elements()
 
-        # Tool modes
+        # Tool modesปุ๋ยน้ำ ถ้ากดใช้จะทรู
         self.watering_mode = False
         self.fertilizing_mode = False
 
@@ -656,23 +176,23 @@ class FarmGame:
     def create_ui_elements(self):
         """Create all UI buttons and elements"""
         # Main screen buttons
-        self.shop_button = pygame.Rect(50, 50, 180, 70)
-        self.inventory_button = pygame.Rect(50, 130, 180, 70)
+        self.shop_button = pygame.Rect(50, 250, 180, 70)
+        self.inventory_button = pygame.Rect(50, 340, 180, 70)
         self.save_button = pygame.Rect(1050, 50, 150, 60)
         self.settings_button = pygame.Rect(1050, 120, 150, 60)
 
         # Tool buttons
-        self.water_button = pygame.Rect(50, 250, 180, 60)
-        self.fertilize_button = pygame.Rect(50, 320, 180, 60)
+        self.water_button = pygame.Rect(50, 430, 180, 60)
+        self.fertilize_button = pygame.Rect(50, 510, 180, 60)
 
         # Back button (universal)
         self.back_button = pygame.Rect(50, 700, 150, 60)
 
         # Start screen buttons
         self.new_game_button = pygame.Rect(WINDOW_WIDTH//2 - 200, 450, 400, 80)
-        self.continue_button = pygame.Rect(WINDOW_WIDTH//2 - 200, 550, 400, 80)
+        self.continue_button = pygame.Rect(WINDOW_WIDTH//2 - 200, 550, 400, 80)#กลางจอ
 
-        # Shop items with better layout
+        # Shop items with better layoutร้านค้า
         self.shop_items = []
         shop_x = 350
         shop_y = 250
@@ -692,30 +212,71 @@ class FarmGame:
                 'rect': pygame.Rect(shop_x + (i % 2) * 300, shop_y + (i // 2) * 150, 280, 120)
             })
 
+    def get_item_from_inventory(self, key):
+        """Get item count from nested inventory structure"""
+        for category in self.inventory.values():
+            if key in category:
+                return category[key]
+        return 0
+    
+    def set_item_in_inventory(self, key, value):
+        """Set item count in nested inventory structure"""
+        for category in self.inventory.values():
+            if key in category:
+                category[key] = value
+                return
+    
+    def add_item_to_inventory(self, key, amount):
+        """Add item to nested inventory structure"""
+        for category in self.inventory.values():
+            if key in category:
+                category[key] += amount
+                return
+
     def load_game(self):
         """Load saved game data"""
         try:
-            if os.path.exists(SAVE_FILE):
+            if os.path.exists(SAVE_FILE):#ตรวจสอบว่ามีไฟล์เซฟอยู่หรือไม่
                 with open(SAVE_FILE, 'r') as f:
-                    data = json.load(f)
+                    data = json.load(f)#เก็บข้อมูลjson
                     self.coins = data.get('coins', 500)
                     self.level = data.get('level', 1)
                     self.xp = data.get('xp', 0)
                     self.day = data.get('day', 1)
-                    self.inventory = data.get('inventory', self.inventory)
+                    
+                    # Convert old inventory format to new format if needed
+                    saved_inventory = data.get('inventory', {})
+                    if 'crops' in saved_inventory:
+                        self.inventory = saved_inventory
+                    else:
+                        # Old format - convert to new
+                        self.inventory = {
+                            "crops": {
+                                "durian": saved_inventory.get("durian", 0),
+                                "mangosteen": saved_inventory.get("mangosteen", 0)
+                            },
+                            "seeds": {
+                                "durian_seeds": saved_inventory.get("durian_seeds", 10),
+                                "mangosteen_seeds": saved_inventory.get("mangosteen_seeds", 10)
+                            },
+                            "tools": {
+                                "fertilizer": saved_inventory.get("fertilizer", 10),
+                                "water_can": saved_inventory.get("water_can", 10)
+                            }
+                        }
 
                     # Load plots
                     plot_data = data.get('plots', [])
-                    for i, plot_info in enumerate(plot_data):
-                        if i < len(self.plots):
-                            self.plots[i].is_tilled = plot_info.get('tilled', False)
-                            self.plots[i].moisture = plot_info.get('moisture', 0)
+                    for i, plot_info in enumerate(plot_data):#loop list
+                        if i < len(self.plots):    # ตรวจสอบว่า index ไม่เกินจำนวนแปลงที่มีอยู่ใน self.plots
+                            self.plots[i].is_tilled = plot_info.get('tilled', False)#เช็คไถ
+                            self.plots[i].moisture = plot_info.get('moisture', 0)#เช็คชื้น
 
-                            if plot_info.get('has_crop'):
-                                crop_type = plot_info.get('crop_type')
+                            if plot_info.get('has_crop'):#เก็บผัก
+                                crop_type = plot_info.get('crop_type')#เรียกชื่อผัก
                                 if crop_type in self.crop_types:
                                     crop = Crop(self.crop_types[crop_type])
-                                    crop.growth_stage = plot_info.get('growth_stage', 0)
+                                    crop.growth_stage = plot_info.get('growth_stage', 0)  # โหลดสถานะการเติบโตของพืชจากเซฟ เช่น โตถึงขั้นไหนแล้ว (stage 0 - 3)
                                     crop.watered = plot_info.get('watered', False)
                                     crop.fertilized = plot_info.get('fertilized', False)
                                     self.plots[i].crop = crop
@@ -745,7 +306,7 @@ class FarmGame:
             'day': self.day,
             'inventory': self.inventory,
             'plots': plot_data,
-            'timestamp': datetime.now().isoformat()
+            'timestamp':datetime .now().isoformat()
         }
 
         try:
@@ -760,11 +321,11 @@ class FarmGame:
     def draw_background(self):
         """Draw beautiful background with gradient sky"""
         # Gradient sky
-        for i in range(WINDOW_HEIGHT // 2):
-            ratio = i / (WINDOW_HEIGHT // 2)
+        for i in range(WINDOW_HEIGHT // 2):#loopครึ่งจอ
+            ratio = i / (WINDOW_HEIGHT // 2)#ไล่สี
             r = int(135 + (255 - 135) * ratio)
             g = int(206 + (255 - 206) * ratio)
-            b = int(250 + (255 - 250) * ratio)
+            b = int(250 + (255 - 250) * ratio)#ไล่สี
             pygame.draw.line(self.screen, (r, g, b), (0, i), (WINDOW_WIDTH, i))
 
         # Ground
@@ -860,14 +421,14 @@ class FarmGame:
 
         # Stats
         stats = [
-            f"⭐ Level: {self.level}",
-            f"✨ XP: {self.xp}/100",
-            f"📅 Day: {self.day}",
-            f"🌤️ {self.weather.name.title()}"
+            f"Level: {self.level}",
+            f"XP: {self.xp}/100",
+            f"Day: {self.day}",
+            f"{self.weather.name.title()}"
         ]
 
         y_offset = 70
-        for stat in stats:
+        for stat in stats:# ข้อความหลายบรรทัดแนวตั้ง 
             text = self.font_small.render(stat, True, BLACK)
             self.screen.blit(text, (25, y_offset))
             y_offset += 35
@@ -941,8 +502,8 @@ class FarmGame:
 
         # Ready indicator
         if crop.is_ready():
-            # Glowing effect
-            glow_size = 15 + math.sin(self.animation_timer * 0.1) * 5
+            # Glowing effectบิกเก็บผักได้ 
+            glow_size = 15 + math.sin(self.animation_timer * 0.01) * 5
             pygame.draw.circle(self.screen, GOLDEN, (center_x + 40, center_y - 40), int(glow_size))
             pygame.draw.circle(self.screen, YELLOW, (center_x + 40, center_y - 40), 12)
             ready_text = self.font_tiny.render("!", True, BLACK)
@@ -957,24 +518,24 @@ class FarmGame:
 
         # Draw buttons with icons
         buttons = [
-            (self.shop_button, "🛒 Shop", ORANGE),
-            (self.inventory_button, "🎒 Inventory", PURPLE),
-            (self.save_button, "💾 Save", LIGHT_GREEN),
-            (self.settings_button, "⚙️ Settings", UI_BROWN),
-            (self.water_button, "💧 Water", SKY_BLUE),
-            (self.fertilize_button, "🌱 Fertilize", DARK_GREEN)
+            (self.shop_button, " Shop", ORANGE),
+            (self.inventory_button, " Inventory", PURPLE),
+            (self.save_button, " Save", LIGHT_GREEN),
+            (self.settings_button, " Settings", UI_BROWN),
+            (self.water_button, " Water", SKY_BLUE),
+            (self.fertilize_button, " Fertilize", DARK_GREEN)
         ]
 
         for button, text, color in buttons:
-            # Button shadow
+            # Button shadow เงาปุ่มสวยๆ
             shadow = button.copy()
             shadow.x += 3
             shadow.y += 3
             pygame.draw.rect(self.screen, (0, 0, 0, 100), shadow, border_radius=15)
 
-            # Highlight if tool is active
-            if (text == "💧 Water" and self.watering_mode) or \
-               (text == "🌱 Fertilize" and self.fertilizing_mode):
+            # Highlight if tool is active กรอบเหลืองปุ่มที่ใช้
+            if (text == " Water" and self.watering_mode) or \
+               (text == " Fertilize" and self.fertilizing_mode):
                 pygame.draw.rect(self.screen, YELLOW, button.inflate(6, 6), border_radius=15)
 
             # Button
@@ -990,14 +551,14 @@ class FarmGame:
         for plot in self.plots:
             self.draw_farm_plot(plot)
 
-        # Draw particles
+        # Draw particlesสร้ามสำเนา ob ตอบลบจะได้ไม่รวน
         for particle in self.particles[:]:
             particle.update()
             particle.draw(self.screen)
             if particle.life <= 0:
                 self.particles.remove(particle)
 
-        # Draw active tool cursor
+        # Draw active tool cursor ตอนกดปุ๋ยกับน้ำ
         if self.watering_mode or self.fertilizing_mode:
             mouse_x, mouse_y = pygame.mouse.get_pos()
             if self.watering_mode:
@@ -1067,70 +628,230 @@ class FarmGame:
         self.draw_back_button()
 
     def draw_inventory(self):
-        """Draw inventory screen matching the design"""
+        """Enhanced inventory screen with tabs and selling"""
         self.draw_background()
 
         # Inventory window
-        inv_bg = pygame.Rect(200, 50, 880, 650)
+        inv_bg = pygame.Rect(150, 50, 980, 650)
         pygame.draw.rect(self.screen, UI_BROWN, inv_bg, border_radius=30)
         pygame.draw.rect(self.screen, BLACK, inv_bg, 5, border_radius=30)
 
         # Title bar
-        title_bg = pygame.Rect(220, 70, 840, 100)
+        title_bg = pygame.Rect(170, 70, 940, 80)
         pygame.draw.rect(self.screen, DARK_GREEN, title_bg, border_radius=20)
 
         # Title
-        title = self.font_large.render("Farm Marketplace", True, WHITE)
-        self.screen.blit(title, (WINDOW_WIDTH//2 - title.get_width()//2, 90))
+        title = self.font_large.render("INVENTORY", True, WHITE)
+        self.screen.blit(title, (WINDOW_WIDTH//2 - title.get_width()//2, 85))
 
-        # Tabs
+        # Tab buttons
         tabs = [
-            ("🌿 Crops", True),
-            ("🔨 Upgrade Materials", False),
-            ("⭐ Special Items", False)
+            ("🌾 Crops", "crops"),
+            ("🌱 Seeds", "seeds"),
+            ("🛠️ Tools", "tools")
         ]
 
-        tab_x = 250
-        for tab_text, active in tabs:
-            tab_rect = pygame.Rect(tab_x, 190, 250, 50)
-            tab_color = LIGHT_GREEN if active else CREAM
+        tab_x = 200
+        for tab_text, tab_key in tabs:
+            tab_rect = pygame.Rect(tab_x, 160, 200, 50)
+            is_active = self.inventory_tab == tab_key
+            tab_color = LIGHT_GREEN if is_active else CREAM
+            
+            # Shadow for active tab
+            if is_active:
+                shadow = tab_rect.copy()
+                shadow.y += 2
+                pygame.draw.rect(self.screen, (0, 0, 0, 50), shadow, border_radius=15)
+            
             pygame.draw.rect(self.screen, tab_color, tab_rect, border_radius=15)
             pygame.draw.rect(self.screen, BLACK, tab_rect, 2, border_radius=15)
 
             text = self.font_small.render(tab_text, True, BLACK)
             self.screen.blit(text, (tab_rect.centerx - text.get_width()//2,
                                    tab_rect.centery - text.get_height()//2))
-            tab_x += 270
+            tab_x += 220
 
-        # Inventory items display
-        item_y = 270
-        items = [
-            ("Durian", self.inventory.get("durian", 0), 'durian', GREEN),
-            ("Mangosteen", self.inventory.get("mangosteen", 0), 'mangosteen', PURPLE)
-        ]
+        # Sell mode toggle
+        sell_toggle_rect = pygame.Rect(850, 160, 120, 50)
+        sell_color = RED if self.sell_mode else GRAY
+        pygame.draw.rect(self.screen, sell_color, sell_toggle_rect, border_radius=15)
+        pygame.draw.rect(self.screen, BLACK, sell_toggle_rect, 2, border_radius=15)
+        sell_text = self.font_small.render("💰 Sell", True, WHITE)
+        self.screen.blit(sell_text, (sell_toggle_rect.centerx - sell_text.get_width()//2,
+                                     sell_toggle_rect.centery - sell_text.get_height()//2))
 
-        for name, count, icon, color in items:
-            # Item row background
-            item_bg = pygame.Rect(250, item_y, 780, 80)
-            pygame.draw.rect(self.screen, CREAM, item_bg, border_radius=15)
-            pygame.draw.rect(self.screen, BLACK, item_bg, 2, border_radius=15)
+        # Items grid
+        self.draw_inventory_items()
 
-            # Item icon
-            icon_img = self.images.get(icon, (60, 60))
-            self.screen.blit(icon_img, (270, item_y + 10))
-
-            # Item name
-            name_text = self.font_medium.render(name, True, BLACK)
-            self.screen.blit(name_text, (350, item_y + 25))
-
-            # Stock count
-            stock_text = self.font_small.render(f"In stock: {count}", True, color)
-            self.screen.blit(stock_text, (350, item_y + 55))
-
-            item_y += 100
+        # Selected item details
+        if self.selected_item:
+            self.draw_item_details()
 
         # Back button
         self.draw_back_button()
+
+    def draw_inventory_items(self):
+        """Draw items in grid layout"""
+        # Get current tab items
+        current_items = self.inventory.get(self.inventory_tab, {})
+        
+        # Grid settings
+        grid_x = 200
+        grid_y = 230
+        item_size = 100
+        padding = 20
+        cols = 8
+        
+        # Item backgrounds
+        item_index = 0
+        for item_key, count in current_items.items():
+            if count > 0:  # Only show items we have
+                row = item_index // cols
+                col = item_index % cols
+                
+                x = grid_x + col * (item_size + padding)
+                y = grid_y + row * (item_size + padding)
+                
+                item_rect = pygame.Rect(x, y, item_size, item_size)
+                
+                # Hover effect
+                mouse_pos = pygame.mouse.get_pos()
+                is_hovered = item_rect.collidepoint(mouse_pos)
+                
+                # Selected highlight
+                is_selected = self.selected_item == item_key
+                
+                # Draw item slot
+                if is_selected:
+                    pygame.draw.rect(self.screen, GOLDEN, item_rect.inflate(6, 6), border_radius=15)
+                elif is_hovered:
+                    pygame.draw.rect(self.screen, LIGHT_GRAY, item_rect.inflate(4, 4), border_radius=15)
+                
+                pygame.draw.rect(self.screen, WHITE, item_rect, border_radius=15)
+                pygame.draw.rect(self.screen, BLACK, item_rect, 2, border_radius=15)
+                
+                # Draw item icon
+                icon_name = item_key.replace('_seeds', '_seed').replace('water_can', 'water_can')
+                if icon_name.endswith('_seed'):
+                    icon_name = icon_name
+                else:
+                    icon_name = item_key
+                    
+                icon = self.images.get(icon_name, (60, 60))
+                icon_rect = icon.get_rect(center=item_rect.center)
+                icon_rect.y -= 10
+                self.screen.blit(icon, icon_rect)
+                
+                # Draw count
+                count_bg = pygame.Rect(x + item_size - 35, y + item_size - 30, 30, 25)
+                pygame.draw.ellipse(self.screen, BLACK, count_bg)
+                pygame.draw.ellipse(self.screen, GOLDEN, count_bg.inflate(-4, -4))
+                
+                count_text = self.font_tiny.render(str(count), True, BLACK)
+                count_rect = count_text.get_rect(center=count_bg.center)
+                self.screen.blit(count_text, count_rect)
+                
+                # Store rect for click detection
+                if not hasattr(self, 'item_rects'):
+                    self.item_rects = {}
+                self.item_rects[item_key] = item_rect
+                
+                item_index += 1
+
+    def draw_item_details(self):
+        """Draw detailed info for selected item"""
+        if not self.selected_item:
+            return
+            
+        # Detail panel
+        detail_rect = pygame.Rect(200, 480, 760, 180)
+        pygame.draw.rect(self.screen, CREAM, detail_rect, border_radius=20)
+        pygame.draw.rect(self.screen, BLACK, detail_rect, 3, border_radius=20)
+        
+        # Item icon
+        icon_name = self.selected_item.replace('_seeds', '_seed')
+        icon = self.images.get(icon_name, (80, 80))
+        self.screen.blit(icon, (220, 500))
+        
+        # Item name
+        item_display_name = self.selected_item.replace('_', ' ').title()
+        name_text = self.font_medium.render(item_display_name, True, BLACK)
+        self.screen.blit(name_text, (320, 510))
+        
+        # Get item info
+        count = self.get_item_from_inventory(self.selected_item)
+        
+        # Description based on item type
+        if self.inventory_tab == "crops":
+            if self.selected_item == "durian":
+                desc = "A spiky tropical fruit. Sells for $100"
+                sell_price = 100
+            else:
+                desc = "A sweet purple fruit. Sells for $60"
+                sell_price = 60
+                
+            desc_text = self.font_small.render(desc, True, DARK_GRAY)
+            self.screen.blit(desc_text, (320, 550))
+            
+            # Quantity and sell controls
+            if self.sell_mode:
+                # Quantity selector
+                qty_rect = pygame.Rect(320, 590, 200, 40)
+                pygame.draw.rect(self.screen, WHITE, qty_rect, border_radius=10)
+                pygame.draw.rect(self.screen, BLACK, qty_rect, 2, border_radius=10)
+                
+                # - button
+                minus_btn = pygame.Rect(330, 595, 30, 30)
+                pygame.draw.rect(self.screen, RED, minus_btn, border_radius=5)
+                minus_text = self.font_medium.render("-", True, WHITE)
+                self.screen.blit(minus_text, (minus_btn.centerx - minus_text.get_width()//2,
+                                             minus_btn.centery - minus_text.get_height()//2 - 3))
+                
+                # Quantity display
+                qty_text = self.font_small.render(str(self.sell_quantity), True, BLACK)
+                self.screen.blit(qty_text, (qty_rect.centerx - qty_text.get_width()//2,
+                                           qty_rect.centery - qty_text.get_height()//2))
+                
+                # + button
+                plus_btn = pygame.Rect(480, 595, 30, 30)
+                pygame.draw.rect(self.screen, GREEN, plus_btn, border_radius=5)
+                plus_text = self.font_medium.render("+", True, WHITE)
+                self.screen.blit(plus_text, (plus_btn.centerx - plus_text.get_width()//2,
+                                           plus_btn.centery - plus_text.get_height()//2 - 3))
+                
+                # Sell button
+                sell_btn = pygame.Rect(550, 590, 150, 40)
+                sell_value = sell_price * self.sell_quantity
+                pygame.draw.rect(self.screen, GOLDEN, sell_btn, border_radius=10)
+                pygame.draw.rect(self.screen, BLACK, sell_btn, 2, border_radius=10)
+                sell_btn_text = self.font_small.render(f"Sell for ${sell_value}", True, BLACK)
+                self.screen.blit(sell_btn_text, (sell_btn.centerx - sell_btn_text.get_width()//2,
+                                                sell_btn.centery - sell_btn_text.get_height()//2))
+                
+                # Store button rects
+                self.minus_btn = minus_btn
+                self.plus_btn = plus_btn
+                self.sell_btn = sell_btn
+                
+        elif self.inventory_tab == "seeds":
+            desc = f"Plant these to grow {self.selected_item.replace('_seeds', '')}!"
+            desc_text = self.font_small.render(desc, True, DARK_GRAY)
+            self.screen.blit(desc_text, (320, 550))
+            
+            stock_text = self.font_small.render(f"In stock: {count}", True, BLACK)
+            self.screen.blit(stock_text, (320, 590))
+            
+        elif self.inventory_tab == "tools":
+            if self.selected_item == "fertilizer":
+                desc = "Makes crops grow 50% faster!"
+            else:
+                desc = "Essential for watering your crops"
+                
+            desc_text = self.font_small.render(desc, True, DARK_GRAY)
+            self.screen.blit(desc_text, (320, 550))
+            
+            stock_text = self.font_small.render(f"Remaining: {count}", True, BLACK)
+            self.screen.blit(stock_text, (320, 590))
 
     def draw_planting_menu(self):
         """Draw seed selection menu"""
@@ -1152,7 +873,7 @@ class FarmGame:
         ]
 
         for name, key, x, y, color, icon in seeds:
-            count = self.inventory.get(key, 0)
+            count = self.get_item_from_inventory(key)
 
             # Seed card
             card = pygame.Rect(x - 80, y - 80, 160, 160)
@@ -1251,9 +972,9 @@ class FarmGame:
         # Instructions
         inst_y = 450
         instructions = [
-            "🎵 Drag sliders to adjust volume",
-            "🔇 Click ON/OFF to toggle sounds",
-            "💾 Settings are saved automatically"
+            " Drag sliders to adjust volume",
+            " Click ON/OFF to toggle sounds",
+            " Settings are saved automatically"
         ]
         for instruction in instructions:
             inst_text = self.font_small.render(instruction, True, BLACK)
@@ -1306,7 +1027,7 @@ class FarmGame:
                 self.particles.append(Particle(x, y, GOLDEN, (vx, vy), 40, 6))
 
     def handle_events(self):
-        """Handle all game events"""
+        """Handle all game eventsไว้จัดการทุกสถานการ"""
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.save_game()
@@ -1331,8 +1052,7 @@ class FarmGame:
                     self.handle_shop_click(mouse_pos)
 
                 elif self.state == GameState.INVENTORY:
-                    if self.back_button.collidepoint(mouse_pos):
-                        self.state = GameState.MAIN
+                    self.handle_inventory_click(mouse_pos)
 
                 elif self.state == GameState.PLANTING:
                     self.handle_planting_click(mouse_pos)
@@ -1369,6 +1089,9 @@ class FarmGame:
             self.state = GameState.INVENTORY
             self.watering_mode = False
             self.fertilizing_mode = False
+            self.selected_item = None
+            self.sell_mode = False
+            self.sell_quantity = 1
         elif self.save_button.collidepoint(mouse_pos):
             if self.save_game():
                 self.create_particles(mouse_pos[0], mouse_pos[1], "coin")
@@ -1394,9 +1117,9 @@ class FarmGame:
                     self.sounds.play('water')
 
                 elif self.fertilizing_mode:
-                    if plot.crop and self.inventory.get("fertilizer", 0) > 0:
+                    if plot.crop and self.get_item_from_inventory("fertilizer") > 0:
                         plot.fertilize()
-                        self.inventory["fertilizer"] -= 1
+                        self.add_item_to_inventory("fertilizer", -1)
                         self.create_particles(plot.rect.centerx, plot.rect.centery, "fertilize")
                         self.sounds.play('plant')
 
@@ -1407,7 +1130,7 @@ class FarmGame:
                 elif plot.crop and plot.crop.is_ready():
                     harvested = plot.harvest()
                     if harvested:
-                        self.inventory[harvested.type.name.lower()] += 1
+                        self.add_item_to_inventory(harvested.type.name.lower(), 1)
                         self.coins += harvested.type.sell_price
                         self.xp += 10
                         self.check_level_up()
@@ -1431,9 +1154,69 @@ class FarmGame:
             buy_btn = pygame.Rect(item['rect'].right - 80, item['rect'].centery - 20, 60, 40)
             if buy_btn.collidepoint(mouse_pos) and self.coins >= item['price']:
                 self.coins -= item['price']
-                self.inventory[item['key']] += 1
+                self.add_item_to_inventory(item['key'], 1)
                 self.create_particles(mouse_pos[0], mouse_pos[1], "coin")
                 self.sounds.play('coin')
+
+    def handle_inventory_click(self, mouse_pos):
+        """Handle inventory screen interactions"""
+        if self.back_button.collidepoint(mouse_pos):
+            self.state = GameState.MAIN
+            return
+        
+        # Check tab clicks
+        tab_x = 200
+        for tab_text, tab_key in [("🌾 Crops", "crops"), ("🌱 Seeds", "seeds"), ("🛠️ Tools", "tools")]:
+            tab_rect = pygame.Rect(tab_x, 160, 200, 50)
+            if tab_rect.collidepoint(mouse_pos):
+                self.inventory_tab = tab_key
+                self.selected_item = None
+                self.sell_quantity = 1
+                return
+            tab_x += 220
+        
+        # Check sell mode toggle
+        sell_toggle_rect = pygame.Rect(850, 160, 120, 50)
+        if sell_toggle_rect.collidepoint(mouse_pos):
+            self.sell_mode = not self.sell_mode
+            if not self.sell_mode:
+                self.sell_quantity = 1
+            return
+        
+        # Check item clicks
+        if hasattr(self, 'item_rects'):
+            for item_key, item_rect in self.item_rects.items():
+                if item_rect.collidepoint(mouse_pos):
+                    self.selected_item = item_key
+                    self.sell_quantity = 1
+                    return
+        
+        # Check sell controls
+        if self.selected_item and self.sell_mode and self.inventory_tab == "crops":
+            if hasattr(self, 'minus_btn') and self.minus_btn.collidepoint(mouse_pos):
+                self.sell_quantity = max(1, self.sell_quantity - 1)
+            elif hasattr(self, 'plus_btn') and self.plus_btn.collidepoint(mouse_pos):
+                max_qty = self.get_item_from_inventory(self.selected_item)
+                self.sell_quantity = min(max_qty, self.sell_quantity + 1)
+            elif hasattr(self, 'sell_btn') and self.sell_btn.collidepoint(mouse_pos):
+                # Sell items
+                count = self.get_item_from_inventory(self.selected_item)
+                if count >= self.sell_quantity:
+                    if self.selected_item == "durian":
+                        sell_price = 100
+                    else:
+                        sell_price = 60
+                    
+                    total_value = sell_price * self.sell_quantity
+                    self.add_item_to_inventory(self.selected_item, -self.sell_quantity)
+                    self.coins += total_value
+                    self.create_particles(mouse_pos[0], mouse_pos[1], "coin")
+                    self.sounds.play('coin')
+                    
+                    # Reset if sold all
+                    if self.get_item_from_inventory(self.selected_item) == 0:
+                        self.selected_item = None
+                        self.sell_quantity = 1
 
     def handle_planting_click(self, mouse_pos):
         """Handle seed selection"""
@@ -1447,10 +1230,10 @@ class FarmGame:
         ]
 
         for crop_type, seed_key, rect in seeds:
-            if rect.collidepoint(mouse_pos) and self.inventory.get(seed_key, 0) > 0:
+            if rect.collidepoint(mouse_pos) and self.get_item_from_inventory(seed_key) > 0:
                 crop = Crop(self.crop_types[crop_type])
                 if self.selected_plot.plant(crop):
-                    self.inventory[seed_key] -= 1
+                    self.add_item_to_inventory(seed_key, -1)
                     self.create_particles(self.selected_plot.rect.centerx,
                                         self.selected_plot.rect.centery, "plant")
                     self.sounds.play('plant')
@@ -1540,12 +1323,18 @@ class FarmGame:
         self.xp = 0
         self.day = 1
         self.inventory = {
-            "durian": 0,
-            "mangosteen": 0,
-            "durian_seeds": 10,
-            "mangosteen_seeds": 10,
-            "fertilizer": 5,
-            "water_can": 1
+            "crops": {
+                "durian": 0,
+                "mangosteen": 0
+            },
+            "seeds": {
+                "durian_seeds": 10,
+                "mangosteen_seeds": 10
+            },
+            "tools": {
+                "fertilizer": 10,
+                "water_can": 10
+            }
         }
         for plot in self.plots:
             plot.is_tilled = False
@@ -1592,44 +1381,5 @@ class FarmGame:
         sys.exit()
 
 if __name__ == "__main__":
-    print("""
-    ===================================
-    🌻 Happy Farm - Vegetables Day 🌻
-    ===================================
-
-    FULLY FIXED VERSION with all graphics created programmatically!
-
-    🎮 Features:
-    - Complete game with all assets drawn in code
-    - Beautiful UI matching your design mockups
-    - Farm management with durian and mangosteen crops
-    - Shop system with seed purchasing
-    - Inventory system matching your marketplace design
-    - Settings menu with volume controls
-    - Save/Load system
-    - Particle effects for all actions
-    - Tool modes (Water & Fertilize) with visual feedback
-
-    🎨 Design Elements:
-    - Cat mascot on start screen
-    - Market stall design for shop
-    - Beautiful farm plots with fence borders
-    - Animated crops with growth stages
-    - Gradient sky and animated clouds
-    - Decorative flowers
-    - All UI elements match your mockups
-
-    🕹️ How to Play:
-    1. Click on plots to till them
-    2. Click tilled plots to plant seeds
-    3. Use Water and Fertilize tools to help crops grow
-    4. Harvest when crops show golden indicator
-    5. Sell crops to earn coins
-    6. Buy more seeds from the shop
-
-    Enjoy your farming adventure!
-    ===================================
-    """)
-
     game = FarmGame()
     game.run()
